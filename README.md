@@ -90,6 +90,14 @@ With SMTP credentials in place, new guest sign-ups send an email containing a li
 
 Contact form submissions POST to `/api/contact` and are relayed to every address in `CONTACT_FORM_RECIPIENTS`. If that variable is absent, the server falls back to known team member inboxes or the configured SMTP user.
 
+### Email delivery tips
+
+- ✅ Required variables: `SMTP_USER`, `SMTP_PASS`, and either `SMTP_SERVICE` (e.g., `gmail`) or `SMTP_HOST`/`SMTP_PORT`. Set `MAIL_FROM` to the mailbox you want recipients to see.
+- ♻️ Render/hosted deployments: add the variables above in the dashboard and redeploy. Outbound SMTP can take a few seconds to negotiate—if your provider is slow or behind a firewall, lower latency by hosting the worker near the SMTP region.
+- ⏱️ Timeout guard: the backend aborts a send if the provider hasn’t responded within 30 seconds. Customize via `MAIL_SEND_TIMEOUT_MS` (set to `0` to disable the cap). Timeouts surface in the UI as a warning so you can adjust credentials or retry.
+- 🛡️ TLS tweaks: if your provider needs relaxed TLS rules, use `SMTP_TLS_REJECT_UNAUTHORIZED=false` or set `SMTP_SECURE=true` when connecting on port 465.
+- 📬 Contact form fallbacks: when no explicit recipients are provided, messages go to the addresses defined in `backend/utils/teamDirectory.js`; keep this list current so invite workflows continue to work.
+
 ## API
 
 - POST `/api/auth/login` { email, password }

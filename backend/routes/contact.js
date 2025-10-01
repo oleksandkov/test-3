@@ -1,5 +1,5 @@
 import express from "express";
-import { isMailConfigured, sendMail } from "../utils/mailer.js";
+import { isMailConfigured, sendMail, getMailStatus } from "../utils/mailer.js";
 import { userMessage } from "../utils/userMessages.js";
 import { listTeamMemberEmails } from "../utils/teamDirectory.js";
 
@@ -186,6 +186,7 @@ router.post("/", async (req, res) => {
       headers: {
         "X-Entity": "contact-form-message",
       },
+      timeoutMs: 20000,
     });
 
     console.log(`Email sent successfully. Message ID: ${mailResult.messageId}`);
@@ -207,9 +208,13 @@ router.post("/", async (req, res) => {
       typeof error?.statusCode === "number" && error.statusCode >= 400
         ? error.statusCode
         : 500;
+    const mail = getMailStatus();
     res.status(status).json({
       error: userMessage("contactSendFailed"),
       details: error?.message || null,
+      code: error?.code || null,
+      mail_enabled: mail.enabled,
+      mail_status: mail.reason,
     });
   }
 });

@@ -8419,12 +8419,39 @@ async function api(path, options = {}) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const errorMessage =
-        data.error || `HTTP ${res.status}: ${res.statusText}`;
-      const error = new Error(errorMessage);
+      const baseMessage = data.error || `HTTP ${res.status}: ${res.statusText}`;
+      let detailMessage = null;
+      if (typeof data.details === "string" && data.details.trim()) {
+        detailMessage = data.details.trim();
+      } else if (data.details && typeof data.details === "object") {
+        const nestedMessage =
+          typeof data.details.message === "string"
+            ? data.details.message.trim()
+            : typeof data.details.error === "string"
+            ? data.details.error.trim()
+            : null;
+        if (nestedMessage) {
+          detailMessage = nestedMessage;
+        }
+      }
+
+      const segments = [baseMessage];
+      if (detailMessage && !baseMessage.includes(detailMessage)) {
+        segments.push(detailMessage);
+      }
+      if (typeof data.code === "string" && data.code.trim()) {
+        const codeSegment = `Code: ${data.code.trim()}`;
+        if (!segments.some((part) => part.includes(codeSegment))) {
+          segments.push(codeSegment);
+        }
+      }
+
+      const displayMessage = segments.filter(Boolean).join(" — ");
+      const error = new Error(displayMessage);
       error.status = res.status;
+      error.body = data;
       if (res.status !== 401) {
-        showNotification(errorMessage, "error", "Request Failed");
+        showNotification(displayMessage, "error", "Request Failed");
       }
       throw error;
     }
@@ -10466,7 +10493,31 @@ async function onAdminPage() {
           );
         }
       } catch (error) {
-        // Error notification already shown by api() helper
+        const responseBody = error?.body;
+        if (responseBody) {
+          if (typeof responseBody.mail_enabled === "boolean") {
+            target.dataset.mailEnabled = String(responseBody.mail_enabled);
+            if (!responseBody.mail_enabled) {
+              const statusText = responseBody.mail_status
+                ? String(responseBody.mail_status)
+                : "Email delivery is currently disabled. Check your SMTP settings.";
+              showNotification(statusText, "warning", "Email disabled", {
+                force: true,
+              });
+            }
+          }
+          if (typeof responseBody.mail_status === "string") {
+            target.dataset.mailStatus = responseBody.mail_status;
+          }
+          if (responseBody.code === "MAIL_SEND_TIMEOUT") {
+            showNotification(
+              "The email provider didn't respond in time. Please review your SMTP credentials or try again shortly.",
+              "warning",
+              "Email provider timeout",
+              { force: true }
+            );
+          }
+        }
       } finally {
         target.disabled = false;
         target.textContent = originalLabel;

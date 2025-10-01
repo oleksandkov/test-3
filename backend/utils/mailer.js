@@ -84,6 +84,31 @@ function formatReplyToAddress(address) {
   return trimmed.includes("<") ? trimmed : trimmed;
 }
 
+function resolveTimeoutMs(value) {
+  if (value == null) return null;
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) return null;
+  if (numeric <= 0) return 0;
+  return numeric;
+}
+
+function buildSendError(error) {
+  const enhancedError = new Error(
+    `Email dispatch failed: ${error?.message || "Unknown error"}`
+  );
+  if (typeof error?.responseCode === "number") {
+    enhancedError.statusCode = error.responseCode;
+  }
+  if (error?.code) {
+    enhancedError.code = error.code;
+  }
+  if (error?.response) {
+    enhancedError.response = error.response;
+  }
+  enhancedError.cause = error;
+  return enhancedError;
+}
+
 export function isMailConfigured() {
   return Boolean(
     (process.env.SMTP_SERVICE || process.env.SMTP_HOST) &&
@@ -270,6 +295,7 @@ export async function sendMail({
   replyTo,
   attachments,
   headers,
+  timeoutMs,
 } = {}) {
   if (!isMailConfigured()) {
     throw new Error("Email service is not configured");
@@ -327,25 +353,61 @@ export async function sendMail({
     message.headers = headers;
   }
 
-  let info;
-  try {
-    info = await transporter.sendMail(message);
-  } catch (error) {
-    const enhancedError = new Error(
-      `Email dispatch failed: ${error?.message || "Unknown error"}`
-    );
-    if (typeof error?.responseCode === "number") {
-      enhancedError.statusCode = error.responseCode;
-    }
-    if (error?.code) {
-      enhancedError.code = error.code;
-    }
-    if (error?.response) {
-      enhancedError.response = error.response;
-    }
-    enhancedError.cause = error;
-    throw enhancedError;
+  const envTimeout = resolveTimeoutMs(process.env.MAIL_SEND_TIMEOUT_MS);
+  const optionTimeout = resolveTimeoutMs(timeoutMs);
+  let sendTimeoutMs = optionTimeout ?? envTimeout ?? 30000;
+  if (sendTimeoutMs === 0) {
+    sendTimeoutMs = null;
   }
+
+  const info = await new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId = null;
+
+    if (Number.isFinite(sendTimeoutMs) && sendTimeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        settled = true;
+        timeoutId = null;
+        const timeoutError = new Error(
+          `Email dispatch timed out after ${sendTimeoutMs}ms`
+        );
+        timeoutError.code = "MAIL_SEND_TIMEOUT";
+        timeoutError.statusCode = 504;
+        reject(timeoutError);
+      }, sendTimeoutMs);
+    }
+
+    transporter.sendMail(message, (error, response) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      if (settled) {
+        if (error) {
+          console.warn(
+            "[mailer] Email send finished after timeout with error:",
+            error.message
+          );
+        } else {
+          console.warn(
+            "[mailer] Email send completed after timeout with messageId:",
+            response?.messageId
+          );
+        }
+        return;
+      }
+
+      settled = true;
+
+      if (error) {
+        reject(buildSendError(error));
+        return;
+      }
+
+      resolve(response);
+    });
+  });
   const previewUrl = nodemailer.getTestMessageUrl
     ? nodemailer.getTestMessageUrl(info)
     : null;

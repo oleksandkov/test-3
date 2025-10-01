@@ -322,6 +322,7 @@ router.post("/:id/send", requireAuth, requireAdmin, async (req, res) => {
       cc: ccInput,
       bcc: bccInput,
       replyTo: finalReplyTo,
+      timeoutMs: 25000,
     });
 
     res.json({
@@ -352,11 +353,14 @@ router.post("/:id/send", requireAuth, requireAdmin, async (req, res) => {
       typeof err?.statusCode === "number" && err.statusCode >= 400
         ? err.statusCode
         : 500;
+    const mail = getMailStatus();
     res.status(status).json({
       error: userMessage("eventSendFailed"),
       details: err?.message || null,
       code: err?.code || null,
       response: err?.response || null,
+      mail_enabled: mail.enabled,
+      mail_status: mail.reason,
     });
   }
 });
