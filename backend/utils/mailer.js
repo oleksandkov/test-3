@@ -92,6 +92,39 @@ export function isMailConfigured() {
   );
 }
 
+export function getMailStatus() {
+  const configured = isMailConfigured();
+  const missing = [];
+  if (!process.env.SMTP_USER) missing.push("SMTP_USER");
+  if (!process.env.SMTP_PASS) missing.push("SMTP_PASS");
+  if (!process.env.SMTP_SERVICE && !process.env.SMTP_HOST) {
+    missing.push("SMTP_SERVICE or SMTP_HOST");
+  }
+
+  const fromSource = process.env.MAIL_FROM || process.env.SMTP_USER || "";
+  const formattedFrom = formatSenderAddress(fromSource);
+
+  const reasons = [];
+  if (!configured) {
+    reasons.push("Email delivery is not configured.");
+    if (missing.length) {
+      reasons.push(`Missing environment variables: ${missing.join(", ")}.`);
+    }
+  } else if (!formattedFrom) {
+    reasons.push(
+      "Sender address is not configured. Set MAIL_FROM or rely on SMTP_USER."
+    );
+  } else {
+    reasons.push("Email delivery is configured.");
+  }
+
+  return {
+    enabled: configured && Boolean(formattedFrom),
+    reason: reasons.join(" ").trim(),
+    from: formattedFrom || null,
+  };
+}
+
 function createTransporter() {
   if (!isMailConfigured()) {
     throw new Error("Email service is not configured");

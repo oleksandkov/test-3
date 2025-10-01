@@ -2,7 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { getCollection, toObjectId, ObjectId } from "../db.js";
-import { isMailConfigured, sendMail } from "../utils/mailer.js";
+import { isMailConfigured, sendMail, getMailStatus } from "../utils/mailer.js";
 import { listTeamMemberEmails } from "../utils/teamDirectory.js";
 import {
   decodeUploadFilename,
@@ -1270,10 +1270,14 @@ router.get("/articles", requireAuth, async (req, res) => {
       .find({})
       .sort({ updated_at: -1, created_at: -1 })
       .toArray();
+    const mail = getMailStatus();
     res.json({
       articles: result.map((doc) =>
         formatArticleDoc(doc, { req, absoluteMedia: false })
       ),
+      mail_enabled: mail.enabled,
+      mail_status: mail.reason,
+      mail_from: mail.from,
     });
   } catch (err) {
     console.error("Failed to load dashboard articles", err);
@@ -1288,8 +1292,12 @@ router.get("/podcasts", requireAuth, async (req, res) => {
       .find({})
       .sort({ updated_at: -1, created_at: -1 })
       .toArray();
+    const mail = getMailStatus();
     res.json({
       podcasts: result.map((doc) => formatPodcastDoc(doc, { req })),
+      mail_enabled: mail.enabled,
+      mail_status: mail.reason,
+      mail_from: mail.from,
     });
   } catch (err) {
     console.error("Failed to load dashboard podcasts", err);

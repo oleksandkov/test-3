@@ -4,7 +4,11 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { closeDb, initDb } from "./db.js";
-import { isMailConfigured, verifyMailer } from "./utils/mailer.js";
+import {
+  isMailConfigured,
+  verifyMailer,
+  getMailStatus,
+} from "./utils/mailer.js";
 import authRouter from "./routes/auth.js";
 import projectsRouter from "./routes/projects.js";
 import documentsRouter from "./routes/documents.js";
@@ -35,7 +39,8 @@ const FRONTEND_DIR = path.join(ROOT_DIR, "frontend");
 app.use(express.static(FRONTEND_DIR));
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+  const mail = getMailStatus();
+  res.json({ status: "ok", mail });
 });
 
 app.use("/api/auth", authRouter);

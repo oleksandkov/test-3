@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { getCollection, toObjectId } from "../db.js";
 import { normalizeTeamMembers } from "../utils/teamMembers.js";
 import { getContactsForMembers } from "../utils/teamDirectory.js";
-import { isMailConfigured, sendMail } from "../utils/mailer.js";
+import { isMailConfigured, sendMail, getMailStatus } from "../utils/mailer.js";
 import { buildEventEmailTemplate } from "../utils/eventTemplate.js";
 import { userMessage } from "../utils/userMessages.js";
 
@@ -142,7 +142,13 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
       .find({})
       .sort({ start_at: 1, created_at: -1 })
       .toArray();
-    res.json({ events: result.map(formatEventDoc) });
+    const mail = getMailStatus();
+    res.json({
+      events: result.map(formatEventDoc),
+      mail_enabled: mail.enabled,
+      mail_status: mail.reason,
+      mail_from: mail.from,
+    });
   } catch (err) {
     console.error("Failed to load events", err);
     res

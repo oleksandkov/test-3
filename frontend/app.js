@@ -3072,7 +3072,10 @@ function renderEventTeamChips(members = []) {
     .join("");
 }
 
-function renderAdminEventCard(event) {
+function renderAdminEventCard(event, options = {}) {
+  const mailEnabled = options.mailEnabled !== false;
+  const mailStatus = options.mailStatus || "";
+  const mailFrom = options.mailFrom || null;
   const template = buildEventTemplate(event);
   const templateEncoded = encodeURIComponent(template);
   const dateLabel = formatEventDateTime(event.start_at, {
@@ -3089,14 +3092,45 @@ function renderAdminEventCard(event) {
   const safeTimeRangeLabel = timeRangeLabel ? escapeHtml(timeRangeLabel) : "";
   const safeDurationLabel = durationLabel ? escapeHtml(durationLabel) : "";
   const memberEmails = getTeamMemberEmails(event.team_members);
-  const sendDisabledAttr = memberEmails.length
-    ? ""
-    : ' disabled title="Add team members with email addresses to enable invites"';
-  const emailHint = memberEmails.length
-    ? `<p class="event-admin-email-hint">Will notify: ${memberEmails
+  const reasons = [];
+  if (!memberEmails.length) {
+    reasons.push("Add team members with email addresses to enable invites.");
+  }
+  if (!mailEnabled) {
+    reasons.push(
+      mailStatus ||
+        "Email delivery is disabled. Configure SMTP settings to enable invites."
+    );
+  }
+  const sendDisabledAttr = reasons.length
+    ? ` disabled title="${escapeHtml(reasons.join(" "))}"`
+    : "";
+  const emailHints = [];
+  if (memberEmails.length) {
+    emailHints.push(
+      `<p class="event-admin-email-hint">Will notify: ${memberEmails
         .map((email) => escapeHtml(email))
         .join(", ")}</p>`
-    : `<p class="event-admin-email-hint event-admin-email-hint--empty">Add team members with contact emails to enable email invites.</p>`;
+    );
+  } else {
+    emailHints.push(
+      `<p class="event-admin-email-hint event-admin-email-hint--empty">Add team members with contact emails to enable email invites.</p>`
+    );
+  }
+  if (!mailEnabled) {
+    const statusText = mailStatus
+      ? String(mailStatus)
+      : "Email delivery is disabled. Configure SMTP settings to enable invites.";
+    const fromInfo = mailFrom
+      ? ` Sender: ${escapeHtml(String(mailFrom))}.`
+      : "";
+    emailHints.push(
+      `<p class="event-admin-email-hint event-admin-email-hint--warning">${escapeHtml(
+        statusText
+      )}${fromInfo}</p>`
+    );
+  }
+  const emailHint = emailHints.join("");
   return `
     <article class="card event-admin-card" data-id="${escapeHtml(event.id)}">
       <div class="event-admin-header">
@@ -3145,7 +3179,11 @@ function renderAdminEventCard(event) {
       <div class="event-admin-actions">
         <button type="button" data-action="send-event" data-id="${escapeHtml(
           event.id
-        )}"${sendDisabledAttr}>Send invites</button>
+        )}" data-mail-enabled="${mailEnabled}" data-mail-status="${escapeHtml(
+    mailStatus || ""
+  )}" data-recipient-count="${
+    memberEmails.length
+  }"${sendDisabledAttr}>Send invites</button>
         <button type="button" class="btn-danger" data-action="delete-event" data-id="${escapeHtml(
           event.id
         )}">Delete event</button>
@@ -7984,7 +8022,7 @@ async function loadDashboardEvents(targetId) {
   const container = document.getElementById(targetId);
   if (!container) return;
   try {
-    const events = await fetchEvents();
+    const { events } = await fetchEvents();
     const { upcoming } = splitEvents(events);
     if (!upcoming.length) {
       container.innerHTML =
@@ -8348,14 +8386,36 @@ function closeNotification(closeBtn) {
 }
 
 async function api(path, options = {}) {
+  const { timeoutMs = 45000, signal, ...rest } = options;
+  const controller = new AbortController();
+  let timeoutId = null;
+
+  if (typeof timeoutMs === "number" && timeoutMs > 0) {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  if (signal?.aborted) {
+    controller.abort();
+  } else if (signal) {
+    signal.addEventListener("abort", () => controller.abort(), {
+      once: true,
+    });
+  }
+
   try {
-    const headers = options.headers || {};
-    headers["Content-Type"] = "application/json";
+    const headers = { ...(rest.headers || {}) };
+    if (!headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
     const token = getToken();
     if (token) headers["Authorization"] = "Bearer " + token;
 
     console.log(`Making API request to: ${API_BASE + path}`);
-    const res = await fetch(API_BASE + path, { ...options, headers });
+    const res = await fetch(API_BASE + path, {
+      ...rest,
+      headers,
+      signal: controller.signal,
+    });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
@@ -8370,6 +8430,14 @@ async function api(path, options = {}) {
     }
     return data;
   } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutMessage =
+        "The server is taking too long to respond. Please try again in a moment.";
+      showNotification(timeoutMessage, "error", "Request Timeout");
+      const timeoutError = new Error(timeoutMessage);
+      timeoutError.code = "REQUEST_TIMEOUT";
+      throw timeoutError;
+    }
     if (error.status === 401) {
       throw error;
     }
@@ -8387,6 +8455,10 @@ async function api(path, options = {}) {
       showNotification(error.message, "error");
     }
     throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -8563,8 +8635,18 @@ async function loadProjects(targetId, options = {}) {
 }
 
 async function fetchEvents() {
-  const { events } = await api("/events");
-  return (events || []).map(normalizeEvent);
+  const data = await api("/events");
+  const events = Array.isArray(data.events)
+    ? data.events.map(normalizeEvent)
+    : [];
+  const mailEnabled =
+    data.mail_enabled == null ? true : Boolean(data.mail_enabled);
+  return {
+    events,
+    mailEnabled,
+    mailStatus: data.mail_status || "",
+    mailFrom: data.mail_from || null,
+  };
 }
 
 function splitEvents(events = []) {
@@ -10241,16 +10323,40 @@ async function onAdminPage() {
   async function refreshEvents() {
     if (!eventsList) return;
     try {
-      const events = await fetchEvents();
-      if (!events || !events.length) {
-        eventsList.innerHTML =
+      const { events, mailEnabled, mailStatus, mailFrom } = await fetchEvents();
+      const banners = [];
+      if (!mailEnabled) {
+        const statusText = mailStatus
+          ? String(mailStatus)
+          : "Email delivery is currently disabled. Configure SMTP settings to enable invites.";
+        const fromLine = mailFrom
+          ? `<br><small>Configured sender: ${escapeHtml(
+              String(mailFrom)
+            )}</small>`
+          : "";
+        banners.push(
+          `<div class="event-mail-status">${escapeHtml(
+            statusText
+          )}${fromLine}</div>`
+        );
+      }
+
+      const normalizedEvents = Array.isArray(events) ? events : [];
+      if (!normalizedEvents.length) {
+        const emptyMessage =
           '<p class="placeholder">No events scheduled yet. Create one above.</p>';
+        eventsList.innerHTML = banners.join("") + emptyMessage;
         return;
       }
-      const { upcoming, past } = splitEvents(events);
-      let html = "";
+
+      const { upcoming, past } = splitEvents(normalizedEvents);
+      let html = banners.join("");
       if (upcoming.length) {
-        html += upcoming.map(renderAdminEventCard).join("");
+        html += upcoming
+          .map((event) =>
+            renderAdminEventCard(event, { mailEnabled, mailStatus, mailFrom })
+          )
+          .join("");
       } else {
         html += '<p class="placeholder">No upcoming events. Add one above.</p>';
       }
@@ -10259,7 +10365,13 @@ async function onAdminPage() {
           <details class="event-archive">
             <summary>View past events (${past.length})</summary>
             <div class="event-archive-list">${past
-              .map(renderAdminEventCard)
+              .map((event) =>
+                renderAdminEventCard(event, {
+                  mailEnabled,
+                  mailStatus,
+                  mailFrom,
+                })
+              )
               .join("")}</div>
           </details>
         `;
@@ -10288,6 +10400,31 @@ async function onAdminPage() {
       const id = target.dataset.id;
       if (!id) return;
       const originalLabel = target.textContent;
+      const mailEnabled = target.dataset.mailEnabled !== "false";
+      const mailStatus = target.dataset.mailStatus || "";
+      const recipientCount = Number(target.dataset.recipientCount || "0");
+
+      if (!mailEnabled) {
+        const message =
+          mailStatus ||
+          "Email delivery is disabled. Configure SMTP settings before sending invites.";
+        showNotification(message, "warning", "Email disabled");
+        target.disabled = false;
+        target.textContent = originalLabel;
+        return;
+      }
+
+      if (!Number.isFinite(recipientCount) || recipientCount <= 0) {
+        showNotification(
+          "Add team members with contact emails before sending invites.",
+          "warning",
+          "No recipients"
+        );
+        target.disabled = false;
+        target.textContent = originalLabel;
+        return;
+      }
+
       target.disabled = true;
       target.textContent = "Sending...";
       try {
@@ -10301,6 +10438,13 @@ async function onAdminPage() {
           ? `Email invites sent to ${sentCount} ${suffix}.`
           : "Email invites sent.";
         showNotification(message, "success", "Email sent");
+        if (response?.mail_success === false) {
+          showNotification(
+            "Emails were queued, but the SMTP provider did not confirm delivery. Please review your mail logs.",
+            "warning",
+            "Delivery uncertain"
+          );
+        }
         if (Array.isArray(response?.sent_to) && response.sent_to.length) {
           const preview = response.sent_to
             .map((email) => escapeHtml(String(email)))
