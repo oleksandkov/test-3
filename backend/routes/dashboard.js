@@ -1597,6 +1597,7 @@ router.post("/articles/:id/notify", requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
+      mail_success: mailResult.success,
       article: {
         id: formattedArticle.id,
         title: formattedArticle.title,
@@ -2228,6 +2229,7 @@ router.post("/podcasts/:id/notify", requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
+      mail_success: mailResult.success,
       podcast: {
         id: formattedPodcast.id,
         title: formattedPodcast.title,

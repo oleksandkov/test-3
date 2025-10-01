@@ -192,6 +192,7 @@ router.post("/", async (req, res) => {
 
     res.json({
       success: true,
+      mail_success: mailResult.success,
       sent_to: mailResult.to,
       message_id: mailResult.messageId || null,
     });

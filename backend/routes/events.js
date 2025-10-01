@@ -320,6 +320,7 @@ router.post("/:id/send", requireAuth, requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
+      mail_success: mailResult.success,
       event: { id: event.id, title: event.title },
       from: mailResult.from,
       sent_to: mailResult.to?.length ? mailResult.to : uniqueRecipients,

@@ -21,6 +21,20 @@ function normalizeRecipients(recipients) {
     .filter(Boolean);
 }
 
+function normalizeTransportList(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((value) => {
+      if (!value) return "";
+      if (typeof value === "string") return value.trim();
+      if (typeof value === "object" && value.address) {
+        return String(value.address).trim();
+      }
+      return String(value).trim();
+    })
+    .filter(Boolean);
+}
+
 function extractAddressKey(value) {
   if (!value) return "";
   const stringValue = String(value).trim();
@@ -303,25 +317,31 @@ export async function sendMail({
     ? nodemailer.getTestMessageUrl(info)
     : null;
 
+  const accepted = normalizeTransportList(info.accepted);
+  const rejected = normalizeTransportList(info.rejected);
+  const pending = normalizeTransportList(info.pending);
+  const success =
+    accepted.length > 0 || (rejected.length === 0 && pending.length === 0);
+
   const shouldLog = normalizeBoolean(
     process.env.MAIL_DEBUG_LOG,
     process.env.NODE_ENV !== "production"
   );
 
   if (shouldLog) {
-    const accepted = Array.isArray(info.accepted) ? info.accepted : [];
     console.info(
       `[mailer] Email dispatched to ${accepted.join(", ") || toList.join(", ")}`
     );
   }
 
   return {
+    success,
     messageId: info.messageId,
     envelopeFrom: info.envelope?.from || message.from,
     envelopeTo: info.envelope?.to || [...toList, ...ccList, ...bccList],
-    accepted: Array.isArray(info.accepted) ? info.accepted : [],
-    rejected: Array.isArray(info.rejected) ? info.rejected : [],
-    pending: Array.isArray(info.pending) ? info.pending : [],
+    accepted,
+    rejected,
+    pending,
     response: info.response,
     from: message.from,
     to: toList,
