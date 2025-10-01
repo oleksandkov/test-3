@@ -1,17 +1,20 @@
 const TEAM_DIRECTORY = [
   {
-    name: "Oleksandr Kovalenko",
+    name: "Oleksandr Koval",
+    aliases: ["Oleksandr Kovalenko"],
     email: "muaronok@gmail.com",
     role: "Lead Engineer",
   },
   {
-    name: "Mariana Danyliuk",
-    email: "mariana@smallco.com",
+    name: "Halyna Liubchych",
+    aliases: ["Mariana Danyliuk"],
+    email: "galina.lubchich@gmail.com",
     role: "Product Strategist",
   },
   {
-    name: "Taras Hrytsenko",
-    email: "taras@smallco.com",
+    name: "Andriy Koval",
+    aliases: ["Taras Hrytsenko"],
+    email: "andriy.koval@gov.ab.ca",
     role: "UX Researcher",
   },
 ];
@@ -50,9 +53,23 @@ function parseAdHocRecipient(value) {
   return null;
 }
 
-const TEAM_LOOKUP = new Map(
-  TEAM_DIRECTORY.map((member) => [member.name.toLowerCase(), member])
-);
+const TEAM_LOOKUP = new Map();
+
+TEAM_DIRECTORY.forEach((member) => {
+  const primaryKey = member.name?.toLowerCase?.() || "";
+  if (primaryKey && !TEAM_LOOKUP.has(primaryKey)) {
+    TEAM_LOOKUP.set(primaryKey, member);
+  }
+
+  if (Array.isArray(member.aliases)) {
+    member.aliases.forEach((alias) => {
+      const key = typeof alias === "string" ? alias.trim().toLowerCase() : "";
+      if (key && !TEAM_LOOKUP.has(key)) {
+        TEAM_LOOKUP.set(key, member);
+      }
+    });
+  }
+});
 
 export function findTeamMember(name) {
   if (!name) return null;
