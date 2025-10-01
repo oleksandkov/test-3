@@ -109,6 +109,17 @@ function createTransporter() {
     10
   );
 
+  // Log configuration for debugging (without sensitive data)
+  console.log("Creating SMTP transporter with config:", {
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: process.env.SMTP_SECURE,
+    service: service,
+    user: user?.substring(0, 10) + "...",
+    pool: usePool,
+    rejectUnauthorized,
+  });
+
   const transporterConfig = {
     pool: usePool,
     logger,
@@ -117,6 +128,13 @@ function createTransporter() {
       user,
       pass,
     },
+    // Add connection timeout settings for cloud platforms
+    connectionTimeout: 60000, // 60 seconds
+    greetingTimeout: 30000, // 30 seconds
+    socketTimeout: 60000, // 60 seconds
+    // Additional settings for better cloud compatibility
+    requireTLS: true,
+    maxConnections: usePool ? maxConnections : 1,
   };
 
   if (service) {
@@ -157,9 +175,13 @@ function createTransporter() {
     }
   }
 
-  if (!rejectUnauthorized) {
-    transporterConfig.tls = { rejectUnauthorized: false };
-  }
+  // Configure TLS settings for better compatibility
+  transporterConfig.tls = {
+    rejectUnauthorized: rejectUnauthorized,
+    // Additional TLS options for cloud platforms
+    ciphers: "SSLv3",
+    secureProtocol: "TLSv1_2_method",
+  };
 
   return nodemailer.createTransport(transporterConfig);
 }
@@ -170,10 +192,19 @@ async function ensureTransporter() {
       const transporter = createTransporter();
       const shouldVerify = normalizeBoolean(
         process.env.SMTP_VERIFY_CONNECTION,
-        process.env.NODE_ENV !== "production"
+        false // Default to false to avoid timeout issues on cloud platforms
       );
       if (shouldVerify) {
-        await transporter.verify();
+        try {
+          await transporter.verify();
+          console.log("SMTP connection verified successfully");
+        } catch (error) {
+          console.warn(
+            "SMTP verification failed, but continuing:",
+            error.message
+          );
+          // Don't throw error, just log warning
+        }
       }
       return transporter;
     })();
@@ -206,10 +237,10 @@ export async function sendMail({
   }
 
   const fromSource = process.env.MAIL_FROM || process.env.SMTP_USER;
-  const formattedFrom = formatSenderAddress(fromSource);
+  const formattedFrom = formatSenderAddress(from || fromSource);
   if (!formattedFrom) {
     throw new Error(
-      "No sender address configured. Set MAIL_FROM or provide SMTP_USER."
+      "No sender address configured. Set MAIL_FROM environment variable."
     );
   }
 
@@ -307,7 +338,17 @@ export async function verifyMailer() {
     return false;
   }
 
-  const transporter = await ensureTransporter();
-  await transporter.verify();
-  return true;
+  try {
+    const transporter = await ensureTransporter();
+    await transporter.verify();
+    return true;
+  } catch (error) {
+    console.warn("SMTP verification failed:", error.message);
+    if (error.code === "ETIMEDOUT") {
+      console.warn(
+        "This might be due to cloud platform network restrictions. Email functionality may still work during actual sending."
+      );
+    }
+    return false;
+  }
 }

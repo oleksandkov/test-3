@@ -53,7 +53,11 @@ initDb()
         await verifyMailer();
         console.log("SMTP transport verified and ready");
       } catch (err) {
-        console.error("SMTP verification failed", err);
+        console.warn(
+          "SMTP verification failed, but server will continue:",
+          err.message
+        );
+        // Don't fail server startup due to SMTP issues
       }
     } else {
       console.warn(
