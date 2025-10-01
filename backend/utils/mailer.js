@@ -178,9 +178,8 @@ function createTransporter() {
   // Configure TLS settings for better compatibility
   transporterConfig.tls = {
     rejectUnauthorized: rejectUnauthorized,
-    // Additional TLS options for cloud platforms
-    ciphers: "SSLv3",
-    secureProtocol: "TLSv1_2_method",
+    // Simplified TLS options for better cloud platform compatibility
+    servername: host || undefined,
   };
 
   return nodemailer.createTransport(transporterConfig);

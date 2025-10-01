@@ -57,15 +57,25 @@ function resolveContactRecipients() {
     process.env.SUPPORT_EMAIL,
   ];
 
+  console.log("Environment candidates for contact recipients:", {
+    CONTACT_FORM_RECIPIENTS: process.env.CONTACT_FORM_RECIPIENTS,
+    CONTACT_RECIPIENTS: process.env.CONTACT_RECIPIENTS,
+    CONTACT_EMAIL: process.env.CONTACT_EMAIL,
+    SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
+  });
+
   const recipients = dedupeEmails(
     envCandidates.flatMap((value) => parseRecipientList(value))
   );
+
+  console.log("Resolved recipients from environment:", recipients);
 
   if (recipients.length) {
     return recipients;
   }
 
   const fallback = dedupeEmails(listTeamMemberEmails());
+  console.log("Fallback recipients from team directory:", fallback);
   if (fallback.length) {
     return fallback;
   }
@@ -73,7 +83,10 @@ function resolveContactRecipients() {
   const smtpUser = normalizeEmail(
     process.env.MAIL_FROM || process.env.SMTP_USER
   );
-  return smtpUser ? [smtpUser] : [];
+  console.log("Final fallback SMTP user:", smtpUser);
+  const finalResult = smtpUser ? [smtpUser] : [];
+  console.log("Final contact recipients result:", finalResult);
+  return finalResult;
 }
 
 function formatEmailBody({ name, email, subject, message, submittedAt }) {
@@ -161,6 +174,9 @@ router.post("/", async (req, res) => {
   });
 
   try {
+    console.log(`Attempting to send email to: ${recipients.join(", ")}`);
+    console.log(`Email subject: ${safeSubject}`);
+
     const mailResult = await sendMail({
       to: recipients,
       subject: safeSubject,
@@ -172,13 +188,20 @@ router.post("/", async (req, res) => {
       },
     });
 
+    console.log(`Email sent successfully. Message ID: ${mailResult.messageId}`);
+
     res.json({
       success: true,
       sent_to: mailResult.to,
       message_id: mailResult.messageId || null,
     });
   } catch (error) {
-    console.error("Contact form email failed", error);
+    console.error("Contact form email failed:", {
+      error: error.message,
+      code: error.code,
+      response: error.response,
+      statusCode: error.statusCode,
+    });
     const status =
       typeof error?.statusCode === "number" && error.statusCode >= 400
         ? error.statusCode
