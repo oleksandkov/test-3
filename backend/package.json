@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Legacy placeholder. Use the root package.json in the project root."
+}
