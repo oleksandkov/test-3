@@ -16,6 +16,40 @@ const TEAM_DIRECTORY = [
   },
 ];
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseAdHocRecipient(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const angleMatch = trimmed.match(/<([^>]+)>/);
+  if (angleMatch) {
+    const email = angleMatch[1].trim();
+    if (EMAIL_REGEX.test(email)) {
+      const name = trimmed.replace(angleMatch[0], "").trim() || null;
+      return { name, email };
+    }
+  }
+
+  const candidate = trimmed.replace(/^mailto:\s*/i, "");
+  if (EMAIL_REGEX.test(candidate)) {
+    return { name: null, email: candidate };
+  }
+
+  const inlineMatch = trimmed.match(/([\w.+-]+@[\w.-]+\.[\w.-]+)/);
+  if (inlineMatch) {
+    const email = inlineMatch[1].trim();
+    if (EMAIL_REGEX.test(email)) {
+      const label =
+        trimmed.replace(inlineMatch[1], "").replace(/[<>]/g, "").trim() || null;
+      return { name: label, email };
+    }
+  }
+
+  return null;
+}
+
 const TEAM_LOOKUP = new Map(
   TEAM_DIRECTORY.map((member) => [member.name.toLowerCase(), member])
 );
@@ -33,19 +67,36 @@ export function getContactsForMembers(names = []) {
   const missing = new Set();
   const seenEmails = new Set();
 
-  names.forEach((name) => {
-    const member = findTeamMember(name);
+  names.forEach((entry) => {
+    const member = findTeamMember(entry);
     if (member?.email) {
-      if (!seenEmails.has(member.email)) {
+      const lower = member.email.toLowerCase();
+      if (!seenEmails.has(lower)) {
         contacts.push({ name: member.name, email: member.email });
-        seenEmails.add(member.email);
+        seenEmails.add(lower);
       }
-    } else if (name) {
-      const normalized = String(name).trim();
-      if (normalized) {
-        missing.add(normalized);
-      }
+      return;
     }
+
+    const normalized = typeof entry === "string" ? entry.trim() : "";
+    if (!normalized) {
+      return;
+    }
+
+    const adHoc = parseAdHocRecipient(normalized);
+    if (adHoc?.email) {
+      const lower = adHoc.email.toLowerCase();
+      if (!seenEmails.has(lower)) {
+        contacts.push({
+          name: adHoc.name || adHoc.email,
+          email: adHoc.email,
+        });
+        seenEmails.add(lower);
+      }
+      return;
+    }
+
+    missing.add(normalized);
   });
 
   return { contacts, missing: Array.from(missing) };
